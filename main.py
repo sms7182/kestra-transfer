@@ -10,8 +10,8 @@ from psycopg2.extras import Json
 PG_CONN = {
           "dbname": "mongodb",
           "user": "postgres",
-          "password": "fatalerror123321",
-          "host": "188.245.196.94",
+          "password": "xxxx",
+          "host": "xxxxx",
           "port": "5432"
       }
 
