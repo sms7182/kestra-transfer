@@ -10,16 +10,18 @@ from psycopg2.extras import Json
 PG_CONN = {
           "dbname": "mongodb",
           "user": "postgres",
-          "password": "xxxx",
-          "host": "xxxxx",
+          "password": "xxx",
+          "host": "xxx",
           "port": "5432"
       }
 
 BACKUP_PATH = "./backup"
 
 def infer_pg_type(value):
-          if isinstance(value, int):
-              return "INTEGER"
+          if isinstance(value, bool):
+              return "BOOLEAN"
+          elif isinstance(value, (int)):
+              return "BIGINT"
           elif isinstance(value, float):
               return "NUMERIC"
           elif isinstance(value, bool):
