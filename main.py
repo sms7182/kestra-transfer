@@ -8,11 +8,7 @@ from bson.binary import Binary
 from psycopg2.extras import Json
 
 PG_CONN = {
-          "dbname": "mongodb",
-          "user": "postgres",
-          "password": "xxx",
-          "host": "xxx",
-          "port": "5432"
+         
       }
 
 BACKUP_PATH = "./backup"
@@ -37,10 +33,12 @@ def create_table(conn, collection_name, sample_doc):
           cursor = conn.cursor()
           fields = [(k, infer_pg_type(v)) for k, v in sample_doc.items()]
           columns = ", ".join([f"{key} {pg_type}" for key, pg_type in fields])
+          createdclmn=",".join([f"{key}" for key,pg_type in fields])
           create_query = f"CREATE TABLE IF NOT EXISTS {collection_name} (id SERIAL PRIMARY KEY, {columns});"
           cursor.execute(create_query)
           conn.commit()
           cursor.close()
+          return createdclmn
 
 def create_table_for_child(conn,table_name,columns):
     cursor=conn.cursor()
@@ -52,7 +50,7 @@ def create_table_for_child(conn,table_name,columns):
     cursor.execute(create_query)
     conn.commit()
     cursor.close()
-
+    
 
 
 
@@ -75,11 +73,26 @@ def recur_data(lst,tb_name,ref_id,ref_name,conn):
             
            
             fields = [(k, infer_pg_type(v)) for k, v in vl.items()]
-            columns = ", ".join([f"{key} {pg_type}" for key, pg_type in fields])
+            replacements = {
+            'Fetch': 'Fetchk',
+            'Order': 'Orderk'
+            }
+
+            columns = ", ".join([f"{replacements.get(key, key)} {pg_type}" for key, pg_type in fields])
+
+            # columns = ", ".join([f"{key} {pg_type}" for key, pg_type in fields])
             columns=columns+f",{ref_name}_id TEXT"
             create_table_for_child(conn,tb_name,columns)
-            insert_child(conn,tb_name,columns,vl.items(),ref_id)
-            processed_vls.append(Json(rs))
+            vl[f"{ref_name}_id"]=ref_id
+            # cmn=", ".join([f"{key} " for key, pg_type in fields])
+            cmn=", ".join([f"{replacements.get(key, key)}" for key, pg_type in fields])
+            # created=",".join([f"{key}" for key, pg_type in fields])
+            created=", ".join([f"{replacements.get(key, key)}" for key, pg_type in fields])
+            created=created+f",{ref_name}_id"
+            createdcolumns=created.split(",")
+            cmn=cmn+f",{ref_name}_id"
+            insert_child(conn,tb_name,cmn,vl,ref_id,createdcolumns)
+            # processed_vls.append(Json(rs))
         elif isinstance(vl,list):
             rs=recur_data(vl,"",id)
 
@@ -88,10 +101,13 @@ def recur_data(lst,tb_name,ref_id,ref_name,conn):
     return processed_vls
 
 
-def insert_child(conn,tb,columns,vls,parent_id):
+def insert_child(conn,tb,columns,vls,parent_id,clmns):
+    createdcolumns=list(clmns)
     cursor=conn.cursor()
     i_v=[]
-    for vl in vls:
+    currentColumns=[]
+    for k,vl in vls.items():
+        currentColumns.append(k)
         if isinstance(vl, Binary):
             id=base64.b64encode(vl).decode('utf-8')
             i_v.append(id)
@@ -100,15 +116,26 @@ def insert_child(conn,tb,columns,vls,parent_id):
             pass
         else:
             i_v.append(vl)
-        
-    i_v.append(parent_id)
+    ind=0
+    for clm in currentColumns:
+        if clm=="Fetch":
+            clm="Fetchk"
+        if clm=="Order":
+            clm="Orderk"
+        columntype=infer_pg_type(i_v[ind])
+        alterQ=f"ALTER TABLE {tb} add COLUMN IF NOT EXISTS  {clm} {columntype};"
+        cursor.execute(alterQ)
+        ind=ind+1
+
+    # i_v.append(parent_id)
     placeholders = ", ".join(["%s"] * len(i_v))
     insert_query = f"INSERT INTO {tb} ({columns}) VALUES ({placeholders});"
     cursor.execute(insert_query, i_v)
     conn.commit()
     cursor.close()
     
-def insert_data(conn, collection_name, documents):
+def insert_data(conn, collection_name, documents,clmns):
+          columns=list(clmns)
           cursor = conn.cursor()
           for doc in documents:
               keysIn=doc.keys()  
@@ -124,10 +151,20 @@ def insert_data(conn, collection_name, documents):
                     id=base64.b64encode(value).decode('utf-8')
                     processed_values.append(id)
                 elif isinstance(value, (dict,list)):
-                    rs=recur_data(value,fields.pop(ind),id,collection_name,conn)
+                    columntype=infer_pg_type(value)
+                    alterQ=f"ALTER TABLE {collection_name} add COLUMN IF NOT EXISTS {fields[ind]} {columntype};"
+                    cursor.execute(alterQ)
+                    rs=recur_data(value,fields[ind],id,collection_name,conn)
                     processed_values.append(Json(rs))
                 
                 else:
+
+                    # if  fields[ind] not in columns:
+                    columntype=infer_pg_type(value)
+                    alterQ=f"ALTER TABLE {collection_name} add COLUMN IF NOT EXISTS {fields[ind]} {columntype};"
+                    cursor.execute(alterQ)
+                    # columns.append(fields[ind])
+                        
                     processed_values.append(value)
                 ind+=1
         
@@ -147,7 +184,9 @@ for bson_file in backup_dir.glob("*.bson"):
         if not data:
                 continue
         sample_doc = data[0]
-        create_table(conn, collection_name, sample_doc)
-        insert_data(conn, collection_name, data)
+        print(collection_name)
+        columnstr=create_table(conn, collection_name, sample_doc)
+        columns=columnstr.split(",")
+        insert_data(conn, collection_name, data,columns)
 conn.close()
 print("succesfull")
