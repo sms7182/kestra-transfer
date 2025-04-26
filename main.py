@@ -113,7 +113,14 @@ def insert_child(conn,tb,columns,vls,parent_id,clmns):
             i_v.append(id)
                     
         elif isinstance(vl, (dict,list)):
-            pass
+            internal_vl=[]
+            for key,vlue in vl.items():
+                if isinstance(vlue, Binary):
+                    id=base64.b64encode(vlue).decode('utf-8')
+                    internal_vl.append(id)
+                else:
+                    internal_vl.append(vlue)
+            i_v.append(Json(internal_vl))
         else:
             i_v.append(vl)
     ind=0
